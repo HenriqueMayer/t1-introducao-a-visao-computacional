@@ -1,0 +1,105 @@
+from pathlib import Path
+import cv2
+import numpy as np
+import matplotlib.pyplot as plt
+
+def load_image(img_path: Path):
+    img = cv2.imread(str(img_path))
+    if img is None:
+        return None
+    return cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+
+def filter_img(src_img, algorithm: str):
+    if algorithm == "median":
+        return cv2.medianBlur(src_img, 5)
+    elif algorithm == "gaussian":
+        return cv2.GaussianBlur(src_img, (5, 5), 0)
+    else:
+        return src_img
+
+def binarization(src_img, threshold: int):
+    _, thresh = cv2.threshold(src_img, threshold, 255, cv2.THRESH_BINARY)
+    return thresh
+
+def save_image(src_img, output_path: Path):
+    cv2.imwrite(str(output_path), src_img)
+
+def dice_coefficient(img1, img2):
+    img1 = img1.astype(np.float32) / 255.0
+    img2 = img2.astype(np.float32) / 255.0
+    intersection = np.sum(img1 * img2)
+    union = np.sum(img1) + np.sum(img2)
+    if union == 0:
+        return 1.0
+    return 2 * intersection / union
+
+def adaptive_threshold(image):
+    adaptive_threshold_mean = cv2.adaptiveThreshold(image, 255, cv2.ADAPTIVE_THRESH_MEAN_C, cv2.THRESH_BINARY, 9, 6)
+    adaptive_threshold_gaussian = cv2.adaptiveThreshold(image, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 9, 6)
+
+
+    plt.figure(figsize = (10,10))
+    titles = ["Adaptive Threshold - Mean", "Adaptive Threshold - Gaussian"]
+    for idx, thres in enumerate([adaptive_threshold_mean, adaptive_threshold_gaussian]):
+        plt.subplot(1,2,idx+1)
+        plt.imshow(thres, 'gray')
+        plt.title(titles[idx])
+        plt.xticks([]), plt.yticks([])
+                
+    plt.show()
+def anscombe_transform(img):
+    return 2.0 * np.sqrt(img + 3.0/8.0)
+
+def inverse_anscombe(y):
+    return (y / 2.0)**2 - 3.0/8.0
+
+def poisson_denoise(image):
+    image = image.astype(np.float32)
+
+    # Step 1: stabilize variance
+    transformed = anscombe_transform(image)
+
+    # Step 2: denoise (Non-Local Means)
+    denoised = cv2.fastNlMeansDenoising(
+        transformed.astype(np.uint8),
+        None,
+        h=1
+    )
+
+    # Step 3: inverse transform
+    result = inverse_anscombe(denoised.astype(np.float32))
+
+    return np.clip(result, 0, 255).astype(np.uint8)
+
+def plot_images(image1, image2, name=""):
+    if isinstance(image1, str) and isinstance(image2, str):
+        image1 = cv2.imread(image1, 0) 
+        image2 = cv2.imread(image2,0)
+        name = Path(image1)
+    
+    fig, ax = plt.subplots(1, 2, figsize=(10,5))
+
+    ax[0].imshow(image1, cmap='gray')
+    # ax[0].set_title(f"Median Filter Applied to: {name}")
+
+    ax[1].imshow(image2, cmap='gray')
+    # ax[1].set_title(f"Binarizatiom Applied to: {name}")
+    plt.show()
+
+def calculate_image_histogram(image1, image2, name=None):
+    fig, ax = plt.subplots(1, 2, figsize=(10, 5))
+
+    ax[0].hist(image1.flatten(), bins=50, color='blue')
+    # ax[0].set_title(f"Image {name} Histogram")
+
+    ax[1].hist(image2.flatten(), bins=50, color='blue')
+    # ax[1].set_title(f"Image 2 {name} Histogram")
+
+    plt.show()
+def get_all_images_hist(images_list):
+    plt.figure(figsize=(8,5))
+    plt.hist(images_list, bins=256)
+    plt.title("Global Pixel Intensity Histogram")
+    plt.xlabel("Pixel value (0–255)")
+    plt.ylabel("Frequency")
+    plt.show()

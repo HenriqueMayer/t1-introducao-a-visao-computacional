@@ -1,4 +1,4 @@
-import noise_filter
+import utils
 from pathlib import Path
 import cv2
 
@@ -12,15 +12,15 @@ def main():
     for image_dir in datadir.rglob("*.png"):
         if "output" in str(image_dir):
             continue
-        image = noise_filter.load_image(image_dir)
+        image = utils.load_image(image_dir)
         if image is None:
             continue
-        image = noise_filter.filter_img(image, "median")
+        image = utils.filter_img(image, "median")
         
         # I defined this arbitrarily, maybe we should try other values
-        image = noise_filter.binarization(image, 120)
+        image = utils.binarization(image, 120)
         output_path = output_dir / image_dir.name
-        noise_filter.save_image(image, output_path)
+        utils.save_image(image, output_path)
         
         
 
@@ -31,7 +31,7 @@ def main():
             
             mask = cv2.imread(str(mask_path), cv2.IMREAD_GRAYSCALE)
             if mask is not None:
-                dice = noise_filter.dice_coefficient(image, mask)
+                dice = utils.dice_coefficient(image, mask)
                 masks_comparison_dice.append(dice)
                 print(f"Dice coefficient for {image_dir.name}: {dice:.4f}")
             else:
