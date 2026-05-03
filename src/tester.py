@@ -6,11 +6,6 @@ import numpy as np
 
 
 def main():
-    raw_img_list = []
-    img_median_applied_list= []
-    img_gaussian_applied_list= []
-    img_poisson_denoiser_applied_list = []
-
     masks_comparison_dice = []
     datadir = Path("data/images/images")
     output_dir = datadir / "output"
@@ -27,18 +22,8 @@ def main():
         image_gaussian_appl = utils.filter_img(image, "gaussian")
         image_poisson_denois_appl = utils.poisson_denoise(image)
 
-        raw_img_list.append(image.flatten())
-        img_median_applied_list.append(image_median_appl.flatten())
-        img_gaussian_applied_list.append(image_gaussian_appl.flatten())
-        img_poisson_denoiser_applied_list.append(image_poisson_denois_appl.flatten())
     
-    utils.get_all_images_hist(np.concatenate(raw_img_list))
-    utils.get_all_images_hist(np.concatenate(img_median_applied_list))
-    utils.get_all_images_hist(np.concatenate(img_gaussian_applied_list))
-    utils.get_all_images_hist(np.concatenate(img_poisson_denoiser_applied_list))
-
-    
-        # image2 = utils.binarization(image, threshold= np.median(image))
+        image2 = utils.binarization(image, threshold= np.median(image))
         # image2= utils.filter_img(image, "median")
         # output_path = output_dir / image_dir.name
         # utils.save_image(image2, output_path)

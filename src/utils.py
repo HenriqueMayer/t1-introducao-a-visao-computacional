@@ -103,3 +103,38 @@ def get_all_images_hist(images_list):
     plt.xlabel("Pixel value (0–255)")
     plt.ylabel("Frequency")
     plt.show()
+
+def variance_vs_intensity_from_pixels(pixels):
+    bins = np.linspace(0, 255, 20)
+    blur = cv2.GaussianBlur(pixels, (5,5), 0)
+    noise = pixels - blur
+
+    pixels_flat = pixels.ravel()
+    noise_flat = noise.ravel()
+
+    digitized = np.digitize(pixels_flat, bins)
+
+    means, variances = [], []
+
+    for i in range(1, len(bins)):
+        values = noise_flat[digitized == i]
+        if len(values) > 10:
+            means.append(np.mean(pixels_flat[digitized == i]))
+            variances.append(np.var(values))
+
+
+
+    plt.scatter(means, variances, label="Data")
+    m, b = np.polyfit(means, variances, 1)
+
+# Create line values
+    x_line = np.linspace(min(means), max(means), 100)
+    y_line = m * x_line + b
+
+# Plot the line
+    plt.plot(x_line, y_line, color='red', label=f"Fit: y={m:.2f}x + {b:.2f}")
+
+    plt.xlabel("Mean intensity")
+    plt.ylabel("Variance")
+    plt.legend()
+    plt.show()
