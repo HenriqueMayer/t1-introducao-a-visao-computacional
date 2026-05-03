@@ -104,10 +104,9 @@ def get_all_images_hist(images_list):
     plt.ylabel("Frequency")
     plt.show()
 
-def variance_vs_intensity_from_pixels(pixels):
+def variance_vs_intensity_from_pixels(pixels, filtered_image):
     bins = np.linspace(0, 255, 20)
-    blur = cv2.GaussianBlur(pixels, (5,5), 0)
-    noise = pixels - blur
+    noise = pixels - filtered_image
 
     pixels_flat = pixels.ravel()
     noise_flat = noise.ravel()
@@ -138,3 +137,56 @@ def variance_vs_intensity_from_pixels(pixels):
     plt.ylabel("Variance")
     plt.legend()
     plt.show()
+
+def variance_vs_intensity_from_image(pixels):
+    bins = np.linspace(0, 255, 20)
+
+    # Flatten once
+    pixels_flat = pixels.ravel()
+
+    # Bin by intensity
+    digitized = np.digitize(pixels_flat, bins)
+
+    means, variances = [], []
+
+    for i in range(1, len(bins)):
+        values = pixels_flat[digitized == i]
+
+        if len(values) > 10:
+            means.append(np.mean(values))     # mean intensity in bin
+            variances.append(np.var(values))  # variance of intensity in bin
+
+    # Plot
+    plt.scatter(means, variances, label="Data")
+
+    # Fit line
+    m, b = np.polyfit(means, variances, 1)
+    x_line = np.linspace(min(means), max(means), 100)
+    y_line = m * x_line + b
+
+    plt.plot(x_line, y_line, color='red', label=f"Fit: y={m:.2f}x + {b:.2f}")
+
+    plt.xlabel("Mean intensity")
+    plt.ylabel("Variance (signal + noise)")
+    plt.legend()
+    plt.show()   
+
+def immerkaer_calc(image):
+    def anscombe_transform(image):
+        return 2.0 * np.sqrt(image + 3.0/8.0)
+    def immerkaer_sigma(image):
+        image = image.astype(np.float64)
+
+        kernel = np.array([[1, -2, 1],
+                        [-2, 4, -2],
+                        [1, -2, 1]])
+
+        filtered = cv2.filter2D(image, -1, kernel)
+
+        sigma = np.sum(np.abs(filtered)) * np.sqrt(np.pi / 2) / (6 * (image.shape[0] - 2) * (image.shape[1] - 2))
+
+        return sigma
+    transformed = anscombe_transform(image)
+    sigma = immerkaer_sigma(transformed)
+    print(sigma)
+    return sigma
