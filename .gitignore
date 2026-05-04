@@ -210,3 +210,4 @@ data/
 *.ipynb
 !*_demo.ipynb
 *.csv
+/tmp
