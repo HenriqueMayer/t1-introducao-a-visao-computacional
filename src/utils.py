@@ -56,18 +56,30 @@ def inverse_anscombe(y):
 def poisson_denoise(image):
     image = image.astype(np.float32)
 
-    # Step 1: stabilize variance
+    # 1. Anscombe
     transformed = anscombe_transform(image)
 
-    # Step 2: denoise (Non-Local Means)
-    denoised = cv2.fastNlMeansDenoising(
-        transformed.astype(np.uint8),
+    # 2. Clip to reasonable range (important)
+    transformed = np.clip(transformed, 0, 50)
+
+    # Scale to 0–255 WITHOUT destroying contrast
+    transformed_8u = cv2.normalize(transformed, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
+
+    # 3. NLM
+    denoised_8u = cv2.fastNlMeansDenoising(
+        transformed_8u,
         None,
-        h=1
+        h=17,  # we'll tune this next
+        templateWindowSize=7,
+        searchWindowSize=21
     )
 
-    # Step 3: inverse transform
-    result = inverse_anscombe(denoised.astype(np.float32))
+    # Back to float scale
+    denoised = denoised_8u.astype(np.float32) / 255.0
+    denoised = denoised * transformed.max()
+
+    # 4. Inverse Anscombe
+    result = inverse_anscombe(denoised)
 
     return np.clip(result, 0, 255).astype(np.uint8)
 
@@ -153,8 +165,11 @@ def variance_vs_intensity_from_image(pixels):
         values = pixels_flat[digitized == i]
 
         if len(values) > 10:
-            means.append(np.mean(values))     # mean intensity in bin
+            means.append(np.mean(values))    # mean intensity in bin
             variances.append(np.var(values))  # variance of intensity in bin
+            # print(f"BIN NUMBER {i} MEAN {np.mean(values)} VARIANCE {np.var(values)}") 
+            print(values)
+            print("-" *20)
 
     # Plot
     plt.scatter(means, variances, label="Data")
