@@ -212,3 +212,4 @@ data/
 *.csv
 /tmp
 data_segraggated/
+*.zip

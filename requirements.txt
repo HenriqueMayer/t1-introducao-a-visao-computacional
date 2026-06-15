@@ -1,0 +1,10 @@
+opencv-python
+numpy
+torch
+torchvision
+optuna
+pandas
+matplotlib
+seaborn
+ipykernel
+notebook
