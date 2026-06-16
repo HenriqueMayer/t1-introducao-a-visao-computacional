@@ -7,6 +7,7 @@ import numpy as np
 import argparse
 import sys
 import os
+from datetime import datetime
 
 # Ensure src path is available
 sys.path.append(str(Path(__file__).parent.resolve()))
@@ -14,7 +15,7 @@ from unet import UNet
 from dataset import OilSpillDataset
 import noise_filter
 
-def train_filter(filter_type, epochs=3, batch_size=16, lr=1e-3, img_size=256, device="cuda"):
+def train_filter(filter_type, epochs=3, batch_size=16, lr=1e-3, img_size=256, device="cuda", save_model=True):
     print(f"Training U-Net for filter: {filter_type.upper()}")
     
     img_train_dir = Path("data/images/images/train")
@@ -42,7 +43,17 @@ def train_filter(filter_type, epochs=3, batch_size=16, lr=1e-3, img_size=256, de
     best_dice = -1.0
     best_metrics = {}
     
+    # Create output directory and unique model path with timestamp
     Path("models").mkdir(exist_ok=True)
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    model_path = Path("models") / f"unet_{filter_type}_{timestamp}.pth"
+    
+    # Early stopping config
+    patience = 3
+    epochs_no_improve = 0
+    
+    # Track training history
+    history = []
     
     for epoch in range(1, epochs + 1):
         model.train()
@@ -106,6 +117,16 @@ def train_filter(filter_type, epochs=3, batch_size=16, lr=1e-3, img_size=256, de
         
         print(f"Epoch [{epoch}/{epochs}] - Train Loss: {train_loss:.4f} | Val Loss: {val_loss:.4f} | Val Dice: {mean_dice:.4f} | Val IoU: {mean_iou:.4f} | Val MSE: {mean_mse:.4f}")
         
+        # Record training history
+        history.append({
+            "epoch": epoch,
+            "train_loss": train_loss,
+            "val_loss": val_loss,
+            "val_dice": mean_dice,
+            "val_iou": mean_iou,
+            "val_mse": mean_mse
+        })
+        
         if mean_dice > best_dice:
             best_dice = mean_dice
             best_metrics = {
@@ -113,19 +134,41 @@ def train_filter(filter_type, epochs=3, batch_size=16, lr=1e-3, img_size=256, de
                 "val_loss": val_loss,
                 "dice": mean_dice,
                 "iou": mean_iou,
-                "mse": mean_mse
+                "mse": mean_mse,
+                "model_path": str(model_path)
             }
-            torch.save(model.state_dict(), f"models/unet_{filter_type}.pth")
+            if save_model:
+                torch.save(model.state_dict(), model_path)
+            epochs_no_improve = 0
+        else:
+            epochs_no_improve += 1
+            if epochs_no_improve >= patience:
+                print(f"Early stopping triggered at epoch {epoch} (no improvement in Dice score for {patience} epochs)")
+                break
             
-    print(f"Best model for {filter_type} saved at epoch {best_metrics['epoch']} with Dice: {best_metrics['dice']:.4f}")
+    # Save training history
+    if history and save_model:
+        df_hist = pd.DataFrame(history)
+        history_path = Path("models") / f"unet_{filter_type}_{timestamp}_history.csv"
+        df_hist.to_csv(history_path, index=False)
+        # Also save a stable version for easy loading in notebooks
+        df_hist.to_csv(Path("models") / f"unet_{filter_type}_history.csv", index=False)
+            
+    if best_metrics:
+        if save_model:
+            print(f"Best model for {filter_type} saved to {best_metrics['model_path']} at epoch {best_metrics['epoch']} with Dice: {best_metrics['dice']:.4f}")
+        else:
+            print(f"Finished training for {filter_type} at epoch {best_metrics['epoch']} with Dice: {best_metrics['dice']:.4f}")
+    else:
+        print(f"Training finished, but no model was saved.")
     return best_metrics
 
 def main():
     parser = argparse.ArgumentParser(description="Train U-Net for Oil Spill Semantic Segmentation")
-    parser.add_argument("--filter", type=str, default="all", choices=["all", "none", "median", "gaussian", "bilateral", "blur"], help="Filter to train on")
-    parser.add_argument("--epochs", type=int, default=3, help="Number of training epochs")
-    parser.add_argument("--batch-size", type=int, default=16, help="Batch size for training")
-    parser.add_argument("--lr", type=float, default=1e-3, help="Learning rate")
+    parser.add_argument("--filter", type=str, default="gaussian", choices=["all", "none", "median", "gaussian", "bilateral", "blur"], help="Filter to train on")
+    parser.add_argument("--epochs", type=int, default=20, help="Number of training epochs")
+    parser.add_argument("--batch-size", type=int, default=32, help="Batch size for training")
+    parser.add_argument("--lr", type=float, default=0.00011013017365962953, help="Learning rate")
     parser.add_argument("--img-size", type=int, default=256, help="Image resize dimension")
     args = parser.parse_args()
     
@@ -144,7 +187,8 @@ def main():
                 "val_loss": metrics["val_loss"],
                 "dice": metrics["dice"],
                 "iou": metrics["iou"],
-                "mse": metrics["mse"]
+                "mse": metrics["mse"],
+                "model_path": metrics.get("model_path", "")
             })
             
     # Save comparison results

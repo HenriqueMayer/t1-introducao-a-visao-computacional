@@ -5,6 +5,7 @@ import sys
 import numpy as np
 import pandas as pd
 import logging
+import argparse
 
 # Ensure src path is available for imports
 sys.path.append(str(Path(__file__).parent.resolve()))
@@ -15,53 +16,124 @@ from train_unet import train_filter
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-def objective(trial):
-    # Hyperparameters to optimize
-    filter_type = trial.suggest_categorical("filter", ["none", "median", "gaussian", "bilateral", "blur"])
+def objective_for_filter(trial, filter_type, opt_epochs, device):
+    # Suggest hyperparameters
     lr = trial.suggest_float("lr", 1e-5, 1e-2, log=True)
     batch_size = trial.suggest_categorical("batch_size", [8, 16, 32])
     img_size = trial.suggest_categorical("img_size", [128, 256])
     
-    # keep epochs relatively low for optimization to save time
-    epochs = 5 
-    
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-    
-    logger.info(f"Trial {trial.number}: Testing filter={filter_type}, lr={lr:.6f}, batch_size={batch_size}, img_size={img_size}")
+    logger.info(f"[Trial {trial.number}] Testing filter={filter_type}, lr={lr:.6f}, batch_size={batch_size}, img_size={img_size}")
     
     try:
+        # We do NOT save checkpoints/history files during search trials
         metrics = train_filter(
             filter_type=filter_type,
-            epochs=epochs,
+            epochs=opt_epochs,
             batch_size=batch_size,
             lr=lr,
             img_size=img_size,
-            device=device
+            device=device,
+            save_model=False
         )
         
-        if metrics is None:
+        if metrics is None or "mse" not in metrics:
             return 0.0
             
-        return metrics["dice"]
+        return metrics["mse"]
     except Exception as e:
-        logger.error(f"Trial {trial.number} failed with error: {e}")
+        logger.error(f"[Trial {trial.number}] Failed for filter {filter_type} with error: {e}")
         return 0.0
 
-def run_optimization(n_trials=20):
-    logger.info("Starting Optuna study for UNet hyperparameters...")
+def run_experiment(n_trials=10, opt_epochs=10, final_epochs=20):
+    filters = ["none", "median", "gaussian", "bilateral", "blur"]
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    logger.info(f"Using device: {device}")
     
-    study = optuna.create_study(direction="maximize")
-    study.optimize(objective, n_trials=n_trials)
+    best_configs = {}
     
-    logger.info("Optimization finished.")
-    logger.info(f"Best Trial: {study.best_trial.number}")
-    logger.info(f"Best Value (Dice): {study.best_value:.4f}")
-    logger.info(f"Best Params: {study.best_params}")
+    # Step 1: Optimize hyperparameters per filter
+    for filter_type in filters:
+        logger.info(f"STARTING OPTIMIZATION FOR FILTER: {filter_type.upper()}")
+        
+        study = optuna.create_study(direction="minimize")
+        study.optimize(
+            lambda trial: objective_for_filter(trial, filter_type, opt_epochs, device),
+            n_trials=n_trials
+        )
+        
+        logger.info(f"Optimization finished for {filter_type}.")
+        logger.info(f"Best Trial: {study.best_trial.number}")
+        logger.info(f"Best Value (Dice): {study.best_value:.4f}")
+        logger.info(f"Best Params: {study.best_params}")
+        
+        # Save study results to CSV specifically for this filter
+        df_study = study.trials_dataframe()
+        opt_csv = f"unet_optuna_optimization_{filter_type}.csv"
+        df_study.to_csv(opt_csv, index=False)
+        logger.info(f"Saved trials to {opt_csv}")
+        
+        best_configs[filter_type] = study.best_params
+        
+    # Step 2: Train & Test (evaluate) using the optimal hyperparameters per filter
+    logger.info(f"TRAINING FINAL MODELS WITH OPTIMAL HYPERPARAMETERS")
     
-    # Save study results to CSV
-    df = study.trials_dataframe()
-    df.to_csv("unet_optuna_optimization.csv", index=False)
-    logger.info("Results saved to unet_optuna_optimization.csv")
+    final_results = []
+    
+    for filter_type, params in best_configs.items():
+        lr = params["lr"]
+        batch_size = params["batch_size"]
+        img_size = params["img_size"]
+        
+        logger.info(f"\nTraining final model for filter: {filter_type.upper()}")
+        logger.info(f"Parameters: lr={lr:.6f}, batch_size={batch_size}, img_size={img_size}")
+        
+        # Train fully with optimal hyperparameters, save_model=True
+        metrics = train_filter(
+            filter_type=filter_type,
+            epochs=final_epochs,
+            batch_size=batch_size,
+            lr=lr,
+            img_size=img_size,
+            device=device,
+            save_model=True
+        )
+        
+        if metrics:
+            result_row = {
+                "filter_type": filter_type,
+                "best_lr": lr,
+                "best_batch_size": batch_size,
+                "best_img_size": img_size,
+                "best_epoch": metrics["epoch"],
+                "val_loss": metrics["val_loss"],
+                "dice": metrics["dice"],
+                "iou": metrics["iou"],
+                "mse": metrics["mse"],
+                "model_path": metrics.get("model_path", "")
+            }
+            final_results.append(result_row)
+        else:
+            logger.error(f"Failed to train final model for filter {filter_type}")
+            
+    # Save final comparison results to CSV
+    df_results = pd.DataFrame(final_results)
+    output_file = "unet_optimal_results.csv"
+    df_results.to_csv(output_file, index=False)
+    logger.info(f"\nAll final models trained. Results saved to {output_file}")
+    
+    # Print comparison table
+    print("FINAL SUMMARY STATISTICS FOR OPTIMAL HYPERPARAMETERS PER FILTER")
+    try:
+        print(df_results.to_markdown(index=False))
+    except Exception:
+        print(df_results)
+    print("="*80)
 
 if __name__ == "__main__":
-    run_optimization(n_trials=15)
+    parser = argparse.ArgumentParser(description="Optimize U-Net hyperparameters per filter and run final evaluation")
+    parser.add_argument("--trials", type=int, default=15, help="Number of Optuna trials per filter")
+    parser.add_argument("--opt-epochs", type=int, default=5, help="Number of training epochs per trial during optimization")
+    parser.add_argument("--final-epochs", type=int, default=20, help="Number of training epochs for final optimal training")
+    args = parser.parse_args()
+    
+    run_experiment(n_trials=args.trials, opt_epochs=args.opt_epochs, final_epochs=args.final_epochs)

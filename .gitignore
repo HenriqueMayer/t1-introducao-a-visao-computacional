@@ -213,3 +213,4 @@ data/
 /tmp
 data_segraggated/
 *.zip
+models/
