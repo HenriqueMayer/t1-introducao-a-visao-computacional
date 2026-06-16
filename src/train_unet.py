@@ -15,8 +15,24 @@ from unet import UNet
 from dataset import OilSpillDataset
 import noise_filter
 
-def train_filter(filter_type, epochs=3, batch_size=16, lr=1e-3, img_size=256, device="cuda", save_model=True):
-    print(f"Training U-Net for filter: {filter_type.upper()}")
+import random
+
+def set_seed(seed):
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed(seed)
+        torch.cuda.manual_seed_all(seed)
+        torch.backends.cudnn.deterministic = True
+        torch.backends.cudnn.benchmark = False
+
+def train_filter(filter_type, epochs=3, batch_size=16, lr=1e-3, img_size=256, device="cuda", save_model=True, seed=None):
+    if seed is not None:
+        print(f"Setting seed to {seed} for training U-Net with filter: {filter_type.upper()}")
+        set_seed(seed)
+    else:
+        print(f"Training U-Net for filter: {filter_type.upper()}")
     
     img_train_dir = Path("data/images/images/train")
     mask_train_dir = Path("data/masks/masks/train")
@@ -46,7 +62,10 @@ def train_filter(filter_type, epochs=3, batch_size=16, lr=1e-3, img_size=256, de
     # Create output directory and unique model path with timestamp
     Path("models").mkdir(exist_ok=True)
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    model_path = Path("models") / f"unet_{filter_type}_{timestamp}.pth"
+    if seed is not None:
+        model_path = Path("models") / f"unet_{filter_type}_seed{seed}_{timestamp}.pth"
+    else:
+        model_path = Path("models") / f"unet_{filter_type}_{timestamp}.pth"
     
     # Early stopping config
     patience = 3
@@ -149,10 +168,15 @@ def train_filter(filter_type, epochs=3, batch_size=16, lr=1e-3, img_size=256, de
     # Save training history
     if history and save_model:
         df_hist = pd.DataFrame(history)
-        history_path = Path("models") / f"unet_{filter_type}_{timestamp}_history.csv"
+        if seed is not None:
+            history_path = Path("models") / f"unet_{filter_type}_seed{seed}_{timestamp}_history.csv"
+            stable_history_path = Path("models") / f"unet_{filter_type}_seed{seed}_history.csv"
+        else:
+            history_path = Path("models") / f"unet_{filter_type}_{timestamp}_history.csv"
+            stable_history_path = Path("models") / f"unet_{filter_type}_history.csv"
         df_hist.to_csv(history_path, index=False)
         # Also save a stable version for easy loading in notebooks
-        df_hist.to_csv(Path("models") / f"unet_{filter_type}_history.csv", index=False)
+        df_hist.to_csv(stable_history_path, index=False)
             
     if best_metrics:
         if save_model:
